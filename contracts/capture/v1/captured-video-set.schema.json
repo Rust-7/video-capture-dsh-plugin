@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:poppincn:popup:captured-video-set:v1",
+    "title": "CapturedVideoSet v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contract_version", "run_id", "job_id", "status", "videos", "failures"],
+    "properties": {
+        "contract_version": { "const": "popup.capture.video-set.v1" },
+        "run_id": { "type": "string", "pattern": "^capture-run-[a-f0-9-]+$" },
+        "job_id": { "type": "string", "pattern": "^popup-capture-[1-9][0-9]*$" },
+        "status": { "enum": ["completed", "partial", "failed"] },
+        "videos": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source_url", "artifact"],
+                "properties": {
+                    "source_url": { "type": "string", "pattern": "^https://" },
+                    "artifact": { "$ref": "urn:poppincn:popup:artifact-ref:v1" }
+                }
+            }
+        },
+        "failures": { "type": "array", "maxItems": 3, "items": { "$ref": "urn:poppincn:popup:capture-error:v1" } },
+        "error": { "$ref": "urn:poppincn:popup:capture-error:v1" }
+    }
+}

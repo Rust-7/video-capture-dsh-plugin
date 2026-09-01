@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:poppincn:popup:capture-error:v1",
+    "title": "CaptureError v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["code", "message", "retryable"],
+    "properties": {
+        "code": {
+            "type": "string",
+            "enum": [
+                "POPUP_CAPTURE_INVALID_REQUEST",
+                "POPUP_CAPTURE_INVALID_URL",
+                "POPUP_CAPTURE_DOWNLOADER_UNAVAILABLE",
+                "POPUP_CAPTURE_NETWORK_ERROR",
+                "POPUP_CAPTURE_DOWNLOAD_FAILED",
+                "POPUP_CAPTURE_ARTIFACT_WRITE_FAILED",
+                "POPUP_CAPTURE_CANCELLED",
+                "POPUP_CAPTURE_PARTIAL_FAILURE",
+                "POPUP_CAPTURE_ALL_FAILED",
+                "POPUP_CAPTURE_INTERNAL_ERROR"
+            ]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "source_url": { "type": "string", "pattern": "^https://" }
+    }
+}

@@ -1,0 +1,80 @@
+{
+    "name": "@poppincn/dsh-popup-capture",
+    "version": "0.1.1",
+    "private": true,
+    "description": "Independent DeepSeek Harness plugin for asynchronous Popup video capture jobs",
+    "keywords": [
+        "deepseek-harness",
+        "dsh",
+        "popup",
+        "video-capture"
+    ],
+    "homepage": "https://github.com/Rust-7/video-capture-dsh-plugin#readme",
+    "bugs": {
+        "url": "https://github.com/Rust-7/video-capture-dsh-plugin/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Rust-7/video-capture-dsh-plugin.git"
+    },
+    "type": "module",
+    "main": "./lib/index.js",
+    "types": "./lib/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./lib/index.d.ts",
+            "default": "./lib/index.js"
+        },
+        "./contracts/*": "./contracts/*",
+        "./fixtures/*": "./fixtures/*",
+        "./cordis.patch.yml": "./cordis.patch.yml",
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "lib",
+        "contracts",
+        "fixtures",
+        "cordis.patch.yml",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "lint": "eslint src test",
+        "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/unit.test.js .test-dist/test/contract.test.js",
+        "test:compile": "tsc -p tsconfig.test.json",
+        "typecheck": "tsc -p tsconfig.test.json --noEmit",
+        "format:check": "prettier --check src test contracts fixtures package.json README.md cordis.patch.yml eslint.config.js tsconfig.build.json tsconfig.test.json .github/workflows/capture-ci.yml"
+    },
+    "engines": {
+        "node": ">=20.9.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    },
+    "dependencies": {
+        "@deepseek-ai/schemastery": "^3.18.1",
+        "playwright-core": "1.62.1"
+    },
+    "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.0.1",
+        "@deepseek-ai/dsh-jobs": "^0.1.0-rc.6",
+        "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+    },
+    "devDependencies": {
+        "@deepseek-ai/cordis": "^4.0.1",
+        "@deepseek-ai/dsh-jobs": "0.1.0-rc.6",
+        "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+        "@eslint/js": "^9",
+        "@types/node": "^24",
+        "ajv": "^8.20.0",
+        "eslint": "^9",
+        "prettier": "3.8.3",
+        "typescript": "6.0.3",
+        "typescript-eslint": "^8.60.0"
+    },
+    "license": "UNLICENSED",
+    "packageManager": "pnpm@10.34.5"
+}

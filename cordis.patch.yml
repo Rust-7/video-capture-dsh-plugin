@@ -1,0 +1,12 @@
+- insert:
+      - id: popup-capture
+        name: "@poppincn/dsh-popup-capture"
+        config:
+            artifactRoot: !!js process.env.POPUP_CAPTURE_ARTIFACT_ROOT ?? '.popup-artifacts/capture'
+            ytDlpExecutable: !!js process.env.POPUP_CAPTURE_YT_DLP_EXECUTABLE ?? 'yt-dlp.exe'
+            douyinCredentialMode: !!js process.env.POPUP_CAPTURE_DOUYIN_CREDENTIAL_MODE ?? 'file'
+            douyinCookieFile: !!js process.env.POPUP_CAPTURE_DOUYIN_COOKIE_FILE
+            douyinCookieMaxAgeSeconds: !!js Number(process.env.POPUP_CAPTURE_DOUYIN_COOKIE_MAX_AGE_SECONDS ?? 1800)
+            douyinManagedRoot: !!js process.env.POPUP_CAPTURE_DOUYIN_MANAGED_ROOT
+            douyinManagedRefreshSeconds: !!js Number(process.env.POPUP_CAPTURE_DOUYIN_MANAGED_REFRESH_SECONDS ?? 1200)
+            douyinManagedBrowserTimeoutMs: !!js Number(process.env.POPUP_CAPTURE_DOUYIN_MANAGED_BROWSER_TIMEOUT_MS ?? 45000)

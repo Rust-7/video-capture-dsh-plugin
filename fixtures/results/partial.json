@@ -1,0 +1,34 @@
+{
+    "contract_version": "popup.capture.video-set.v1",
+    "run_id": "capture-run-00000000-0000-4000-8000-000000000002",
+    "job_id": "popup-capture-2",
+    "status": "partial",
+    "videos": [
+        {
+            "source_url": "https://videos.example.test/one.mp4",
+            "artifact": {
+                "contract_version": "popup.artifact-ref.v1",
+                "artifact_id": "capture:capture-run-00000000-0000-4000-8000-000000000002:1",
+                "kind": "video",
+                "uri": "file:///fixtures/video-1.mp4",
+                "media_type": "video/mp4",
+                "byte_size": 4,
+                "sha256": "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a",
+                "metadata": { "source_url": "https://videos.example.test/one.mp4" }
+            }
+        }
+    ],
+    "failures": [
+        {
+            "code": "POPUP_CAPTURE_NETWORK_ERROR",
+            "message": "The video download failed because of a network error.",
+            "retryable": true,
+            "source_url": "https://videos.example.test/two.mp4"
+        }
+    ],
+    "error": {
+        "code": "POPUP_CAPTURE_PARTIAL_FAILURE",
+        "message": "Some videos could not be captured.",
+        "retryable": true
+    }
+}

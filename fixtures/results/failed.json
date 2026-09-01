@@ -1,0 +1,16 @@
+{
+    "contract_version": "popup.capture.video-set.v1",
+    "run_id": "capture-run-00000000-0000-4000-8000-000000000003",
+    "job_id": "popup-capture-3",
+    "status": "failed",
+    "videos": [],
+    "failures": [
+        {
+            "code": "POPUP_CAPTURE_DOWNLOADER_UNAVAILABLE",
+            "message": "No callable video downloader is configured.",
+            "retryable": false,
+            "source_url": "https://videos.example.test/one.mp4"
+        }
+    ],
+    "error": { "code": "POPUP_CAPTURE_ALL_FAILED", "message": "No videos could be captured.", "retryable": false }
+}

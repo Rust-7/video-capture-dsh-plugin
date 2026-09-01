@@ -1,0 +1,8 @@
+{
+    "contract_version": "popup.capture.request.v1",
+    "video_urls": [
+        "https://videos.example.test/one.mp4",
+        "https://videos.example.test/two.mp4",
+        "https://videos.example.test/three.mp4"
+    ]
+}

@@ -1,0 +1,22 @@
+{
+    "contract_version": "popup.capture.video-set.v1",
+    "run_id": "capture-run-00000000-0000-4000-8000-000000000001",
+    "job_id": "popup-capture-1",
+    "status": "completed",
+    "videos": [
+        {
+            "source_url": "https://videos.example.test/one.mp4",
+            "artifact": {
+                "contract_version": "popup.artifact-ref.v1",
+                "artifact_id": "capture:capture-run-00000000-0000-4000-8000-000000000001:1",
+                "kind": "video",
+                "uri": "file:///fixtures/video-1.mp4",
+                "media_type": "video/mp4",
+                "byte_size": 4,
+                "sha256": "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a",
+                "metadata": { "source_url": "https://videos.example.test/one.mp4" }
+            }
+        }
+    ],
+    "failures": []
+}

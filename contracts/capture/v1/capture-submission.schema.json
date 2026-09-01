@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:poppincn:popup:capture-submission:v1",
+    "title": "CaptureSubmission v1",
+    "oneOf": [
+        {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["contract_version", "status", "run_id", "job_id"],
+            "properties": {
+                "contract_version": { "const": "popup.capture.submission.v1" },
+                "status": { "const": "queued" },
+                "run_id": { "type": "string", "pattern": "^capture-run-[a-f0-9-]+$" },
+                "job_id": { "type": "string", "pattern": "^popup-capture-[1-9][0-9]*$" }
+            }
+        },
+        {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["contract_version", "status", "error"],
+            "properties": {
+                "contract_version": { "const": "popup.capture.submission.v1" },
+                "status": { "const": "rejected" },
+                "error": { "$ref": "urn:poppincn:popup:capture-error:v1" }
+            }
+        }
+    ]
+}

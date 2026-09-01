@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:poppincn:popup:artifact-ref:v1",
+    "title": "ArtifactRef v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contract_version", "artifact_id", "kind", "uri", "media_type", "byte_size", "metadata"],
+    "properties": {
+        "contract_version": { "const": "popup.artifact-ref.v1" },
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "video" },
+        "uri": { "type": "string", "pattern": "^file:" },
+        "media_type": { "type": "string", "pattern": "^video/[A-Za-z0-9.+-]+$" },
+        "byte_size": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["source_url"],
+            "properties": { "source_url": { "type": "string", "pattern": "^https://" } }
+        }
+    }
+}

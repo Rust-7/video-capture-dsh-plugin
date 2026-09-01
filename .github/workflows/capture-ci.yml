@@ -1,0 +1,204 @@
+name: Capture CI
+
+on:
+    pull_request:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        name: Verify capture package
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        env:
+            CI: "true"
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+
+            - name: Set up Node.js 20.9.0
+              uses: actions/setup-node@v7
+              with:
+                  node-version: "20.9.0"
+                  package-manager-cache: false
+
+            - name: Install pinned pnpm
+              run: npm install --global pnpm@10.34.5
+
+            - name: Verify runtime versions
+              shell: bash
+              run: |
+                  node --version
+                  pnpm --version
+                  node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 20 || (major === 20 && minor < 9)) process.exit(1)"
+                  test "$(pnpm --version)" = "10.34.5"
+
+            - name: Audit tracked file boundary
+              shell: bash
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { execFileSync } from "node:child_process";
+                  import { readFileSync } from "node:fs";
+
+                  const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
+                      .split("\0")
+                      .filter(Boolean)
+                      .map(path => path.replaceAll("\\", "/"));
+                  const exactAllowlist = new Set([
+                      ".gitattributes",
+                      ".gitignore",
+                      ".prettierignore",
+                      ".prettierrc",
+                      "LICENSE",
+                      "README.md",
+                      "cordis.patch.yml",
+                      "eslint.config.js",
+                      "package.json",
+                      "pnpm-lock.yaml",
+                      "tsconfig.build.json",
+                      "tsconfig.test.json"
+                  ]);
+                  const allowedRoots = [".github/workflows/", "contracts/", "fixtures/", "src/", "test/"];
+                  const unexpected = files.filter(
+                      path => !exactAllowlist.has(path) && !allowedRoots.some(root => path.startsWith(root))
+                  );
+                  if (unexpected.length > 0) throw new Error(`Unexpected tracked files: ${unexpected.join(", ")}`);
+
+                  const forbiddenPaths = [
+                      /(^|\/)\.planning(\/|$)/i,
+                      /(^|\/)approvals?(\/|$)/i,
+                      /(^|\/)(?:\.popup-)?artifacts?(\/|$)/i,
+                      /(^|\/)(?:edge-)?profiles?(\/|$)/i,
+                      /(^|\/)(?:user-data|cache)(\/|$)/i,
+                      /(^|\/)\.env(?:\.[^/]*)?$/i,
+                      /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:[._-][^/]*)?(?:\.[^/]*)?$/i,
+                      /\.(?:mp4|mov|webm|mkv|sqlite|db)$/i
+                  ];
+                  const forbidden = files.filter(path => forbiddenPaths.some(pattern => pattern.test(path)));
+                  if (forbidden.length > 0) throw new Error(`Forbidden tracked paths: ${forbidden.join(", ")}`);
+
+                  const secretPatterns = [
+                      /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+                      /github_pat_[A-Za-z0-9_]{20,}/,
+                      /gh[pousr]_[A-Za-z0-9]{20,}/,
+                      /AKIA[0-9A-Z]{16}/
+                  ];
+                  const leaked = files.filter(path => {
+                      const text = readFileSync(path, "utf8");
+                      return secretPatterns.some(pattern => pattern.test(text));
+                  });
+                  if (leaked.length > 0) throw new Error(`Potential secrets in tracked files: ${leaked.join(", ")}`);
+
+                  console.log(`Validated ${files.length} tracked files against the independent repository boundary.`);
+                  NODE
+
+            - name: Install locked dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Typecheck
+              run: pnpm typecheck
+
+            - name: Lint
+              run: pnpm lint
+
+            - name: Test
+              run: pnpm test
+
+            - name: Build
+              run: pnpm build
+
+            - name: Check formatting
+              run: pnpm format:check
+
+            - name: Check patch whitespace
+              run: git diff --check
+
+            - name: Inspect npm dry-run package
+              env:
+                  CAPTURE_PACK_REPORT: ${{ runner.temp }}/capture-pack.json
+              run: |
+                  npm pack --dry-run --json > "$CAPTURE_PACK_REPORT"
+                  node --input-type=module <<'NODE'
+                  import { readFileSync } from "node:fs";
+
+                  const reportPath = process.env.CAPTURE_PACK_REPORT;
+                  if (!reportPath) throw new Error("CAPTURE_PACK_REPORT is not set");
+
+                  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+                  if (manifest.private !== true) throw new Error("Capture package must be private");
+                  if (manifest.license !== "UNLICENSED") throw new Error("Capture package must be UNLICENSED");
+                  if (Object.hasOwn(manifest, "publishConfig")) {
+                      throw new Error("Capture package must not declare publishConfig");
+                  }
+
+                  const manifestText = JSON.stringify(manifest);
+                  const forbiddenRegistries = ["registry.npmjs.org", "npm.pkg.github.com"];
+                  const configuredRegistry = forbiddenRegistries.find(registry => manifestText.includes(registry));
+                  if (configuredRegistry) throw new Error(`Forbidden package registry: ${configuredRegistry}`);
+
+                  const publishScripts = Object.entries(manifest.scripts ?? {}).filter(
+                      ([name, command]) =>
+                          /publish|release/i.test(name) || /\b(?:npm|pnpm)\s+publish\b/i.test(String(command))
+                  );
+                  if (publishScripts.length > 0) {
+                      throw new Error(`Registry publication scripts are forbidden: ${publishScripts.map(([name]) => name).join(", ")}`);
+                  }
+
+                  const licenseText = readFileSync("LICENSE", "utf8");
+                  if (!licenseText.includes("Proprietary and Confidential")) {
+                      throw new Error("Internal proprietary LICENSE is missing");
+                  }
+
+                  const report = JSON.parse(readFileSync(reportPath, "utf8"));
+                  if (!Array.isArray(report) || report.length !== 1 || !Array.isArray(report[0].files)) {
+                      throw new Error("Unexpected npm pack --dry-run JSON output");
+                  }
+
+                  const files = report[0].files.map(entry => entry.path.replaceAll("\\", "/"));
+                  const exactAllowlist = new Set(["LICENSE", "README.md", "cordis.patch.yml", "package.json"]);
+                  const allowedRoots = ["contracts/", "fixtures/", "lib/"];
+                  const unexpected = files.filter(
+                      path => !exactAllowlist.has(path) && !allowedRoots.some(root => path.startsWith(root))
+                  );
+
+                  const forbiddenPatterns = [
+                      /(^|\/)\.planning(\/|$)/i,
+                      /(^|\/)approvals?(\/|$)/i,
+                      /(^|\/)(?:\.popup-)?artifacts?(\/|$)/i,
+                      /(^|\/)(?:edge-)?profiles?(\/|$)/i,
+                      /(^|\/)(?:user-data|cache)(\/|$)/i,
+                      /(^|\/)managed-cookies(?:\.[^/]*)?\.txt$/i,
+                      /(^|\/)(?:cookies?|credentials?|secrets?|tokens?)(?:[._-][^/]*)?(?:\.[^/]*)?$/i,
+                      /(^|\/)\.env(?:\.[^/]*)?$/i,
+                      /(^|\/)(?:test|tests|__tests__)(\/|$)/i
+                  ];
+                  const sensitive = files.filter(path => forbiddenPatterns.some(pattern => pattern.test(path)));
+                  const required = [
+                      "LICENSE",
+                      "README.md",
+                      "package.json",
+                      "cordis.patch.yml",
+                      "lib/index.js",
+                      "lib/index.d.ts",
+                      "contracts/capture/v1/captured-video-set.schema.json",
+                      "contracts/common/v1/artifact-ref.schema.json",
+                      "fixtures/requests/valid-one.json",
+                      "fixtures/results/completed.json"
+                  ];
+                  const missing = required.filter(path => !files.includes(path));
+
+                  if (unexpected.length > 0) throw new Error(`Unexpected package files: ${unexpected.join(", ")}`);
+                  if (sensitive.length > 0) throw new Error(`Sensitive package files: ${sensitive.join(", ")}`);
+                  if (missing.length > 0) throw new Error(`Required package files missing: ${missing.join(", ")}`);
+
+                  console.log(`Validated ${files.length} npm package entries against the capture allowlist.`);
+                  NODE
