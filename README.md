@@ -240,6 +240,7 @@ profile 启动后，在目标 DSH 会话或 Tool 目录中确认：
 - `popup_capture` 已注册；
 - `job_output` 已注册；
 - `popup_capture` 的生成 Schema 根级 `required` 明确包含且仅包含 `contract_version` 和 `video_urls`。
+- `contract_version` 可选 v1、v2；v2 的 `account_name` 和 `sequence_start` 由请求校验器强制要求。
 
 如果 `popup_capture` 不存在：
 
@@ -267,6 +268,33 @@ profile 启动后，在目标 DSH 会话或 Tool 目录中确认：
 - URL 不得包含用户名或密码；
 - 抖音分享文案应先提取其中的 HTTPS 链接，不能把整段文案作为 URL；
 - 只能使用已获授权处理的视频。
+
+#### 按账号和抓取次序命名（v2）
+
+使用 `popup.capture.request.v2`，同时提供账号显示名 `account_name` 和本批首条视频在完整列表中的序号 `sequence_start`：
+
+```json
+{
+    "contract_version": "popup.capture.request.v2",
+    "video_urls": [
+        "https://videos.example.test/one.mp4",
+        "https://videos.example.test/two.mp4",
+        "https://videos.example.test/three.mp4"
+    ],
+    "account_name": "示例账号",
+    "sequence_start": 1
+}
+```
+
+五条视频按 3+2 提交时，第二批使用相同账号名，传入第 4、5 条 URL 和 `sequence_start: 4`。两批分别生成 `示例账号-1.mp4` 至 `示例账号-3.mp4`、`示例账号-4.mp4` 至 `示例账号-5.mp4`；扩展名按实际下载格式确定。
+
+- 序号从 1 开始，必须是 1～9007199254740989 的整数；每批 URL 必须按原始连续次序排列。
+- 部分失败不压缩序号。例如第 1、4 条失败时，分别提交单链接请求并传 `sequence_start: 1`、`sequence_start: 4`。调用方负责保存原始序号；重试不改名。
+- `account_name` 必须含非空白字符。文件名前缀去除首尾空白，将 Windows 非法字符和控制字符替换为 `_`，保留前 50 个 Unicode 字符并移除末尾的点和空格；空前缀使用 `account`，设备保留名前加 `_`。
+- 每个 Job 在独立的 `run_id` 目录中直接以最终名称写入 Artifact，并在写入流中计算 SHA-256 和字节数。`ArtifactRef.uri` 指向该文件，输出继续使用 `CapturedVideoSet v1` 和 `ArtifactRef v1`。
+- v1 请求继续只接收 `contract_version`、`video_urls`，产物名保持 `video-1.ext` 等批内编号。
+
+下游下载编排器应在任务内保存账号主页 URL、账号名和原始次序，通过 `popup_capture` v2 提交批次，并直接保留返回的 ArtifactRef。文件名便于展示；跨任务或同名账号的身份仍以任务、主页 URL 和 ArtifactRef 为准。
 
 ### 6.2 queued 响应
 
@@ -391,6 +419,7 @@ profile 启动后，在目标 DSH 会话或 Tool 目录中确认：
 包内自带全部版本化 Schema 与 fixtures：
 
 - `contracts/capture/v1/`
+- `contracts/capture/v2/capture-request.schema.json`
 - `contracts/common/v1/artifact-ref.schema.json`
 - `fixtures/requests/`
 - `fixtures/results/`

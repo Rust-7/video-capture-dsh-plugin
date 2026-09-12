@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { access, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { access, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { mkdtemp } from "node:fs/promises";
 import test from "node:test";
 
-import { CAPTURE_REQUEST_VERSION, type CapturedVideoSetV1 } from "../src/contracts.js";
+import { CAPTURE_REQUEST_VERSION, CAPTURE_REQUEST_V2_VERSION, type CapturedVideoSetV1 } from "../src/contracts.js";
 import {
     PlaywrightDouyinBrowserSession,
     type BrowserCookieRecord,
@@ -27,7 +27,7 @@ import { apply, registerCapture } from "../src/plugin.js";
 import type { ProcessRunRequest, ProcessRunner } from "../src/process-runner.js";
 import { validateCaptureRequest } from "../src/request.js";
 import { YtDlpVideoDownloader } from "../src/yt-dlp-downloader.js";
-import { BlockingDownloader, CaptureHarness, FixtureDownloader } from "./helpers.js";
+import { BlockingDownloader, CaptureHarness, FixtureDownloader, type DownloadOutcome } from "./helpers.js";
 
 const ONE = "https://videos.example.test/one.mp4";
 const TWO = "https://videos.example.test/two.mp4";
@@ -64,14 +64,16 @@ test("popup_capture publishes required typed CaptureRequest fields", async () =>
     const properties = asRecord(parameters.properties);
     assert.deepEqual(asRecord(properties.contract_version), {
         type: "string",
-        const: CAPTURE_REQUEST_VERSION,
-        description: "Must be popup.capture.request.v1."
+        enum: [CAPTURE_REQUEST_VERSION, CAPTURE_REQUEST_V2_VERSION],
+        description: "Use popup.capture.request.v1 or popup.capture.request.v2."
     });
     assert.deepEqual(asRecord(properties.video_urls), {
         type: "array",
         items: { type: "string" },
         description: "An array containing 1 to 3 unique HTTPS video URLs without credentials."
     });
+    assert.equal(asRecord(properties.account_name).type, "string");
+    assert.equal(asRecord(properties.sequence_start).type, "integer");
 
     for (const invalidRequest of [{ video_urls: [ONE] }, { contract_version: "wrong", video_urls: [ONE] }]) {
         await assert.rejects(harness.execute(invalidRequest), (error: unknown) => {
@@ -100,6 +102,39 @@ test("invalid Tool input returns a stable rejection and starts no Job", async ()
             retryable: false
         }
     });
+    assert.equal(harness.jobs.length, 0);
+});
+
+test("invalid v2 naming fields and v1 naming extensions start no Job", async () => {
+    const harness = new CaptureHarness();
+    apply(harness.context, {});
+    const request = {
+        contract_version: CAPTURE_REQUEST_V2_VERSION,
+        video_urls: [ONE],
+        account_name: "示例账号",
+        sequence_start: 1
+    };
+    const missingName: Record<string, unknown> = { ...request };
+    const missingSequence: Record<string, unknown> = { ...request };
+    delete missingName.account_name;
+    delete missingSequence.sequence_start;
+    for (const input of [
+        missingName,
+        missingSequence,
+        { ...request, account_name: " \t\n" },
+        { ...request, sequence_start: 0 },
+        { ...request, sequence_start: Number.MAX_SAFE_INTEGER },
+        { ...request, extra: true },
+        { ...request, contract_version: CAPTURE_REQUEST_VERSION }
+    ]) {
+        const result = asRecord(await harness.execute(input));
+        assert.equal(result.status, "rejected");
+        assert.equal(asRecord(result.error).code, "POPUP_CAPTURE_INVALID_REQUEST");
+    }
+    await assert.rejects(
+        harness.execute({ ...request, sequence_start: 1.5 }),
+        (error: unknown) => asRecord(error).code === "INVALID_ARGS"
+    );
     assert.equal(harness.jobs.length, 0);
 });
 
@@ -804,9 +839,143 @@ test("successful capture materializes bytes, hash, and a file ArtifactRef", asyn
 
         const artifact = result.videos[0]?.artifact;
         assert.ok(artifact);
+        assert.equal(basename(fileURLToPath(artifact.uri)), "video-1.mp4");
         assert.equal(artifact.byte_size, bytes.byteLength);
         assert.equal(artifact.sha256, createHash("sha256").update(bytes).digest("hex"));
         assert.deepEqual(new Uint8Array(await readFile(fileURLToPath(artifact.uri))), bytes);
+    });
+});
+
+test("v2 capture writes account-named artifacts with global sequence across 3+2 batches", async () => {
+    await withArtifactRoot(async artifactRoot => {
+        const urls = [ONE, TWO, THREE, "https://videos.example.test/four.mp4", "https://videos.example.test/five.mp4"];
+        const bytes = Uint8Array.from([1, 2, 3, 4]);
+        const harness = new CaptureHarness();
+        registerCapture(
+            harness.context,
+            { artifactRoot },
+            new FixtureDownloader(new Map(urls.map(url => [url, { bytes }])))
+        );
+
+        const videos: CapturedVideoSetV1["videos"] = [];
+        for (const offset of [0, 3]) {
+            const submission = await harness.execute({
+                contract_version: CAPTURE_REQUEST_V2_VERSION,
+                video_urls: urls.slice(offset, offset + 3),
+                account_name: "示例账号Demo",
+                sequence_start: offset + 1
+            });
+            assert.equal(asRecord(submission).status, "queued");
+            const result = parseVideoSet((await harness.lastJob.hooks.done).output);
+            assert.equal(result.status, "completed");
+            assert.deepEqual(
+                (await readdir(join(artifactRoot, result.run_id))).sort(),
+                result.videos.map(video => basename(fileURLToPath(video.artifact.uri))).sort()
+            );
+            videos.push(...result.videos);
+        }
+
+        assert.deepEqual(
+            videos.map(video => video.source_url),
+            urls
+        );
+        assert.deepEqual(
+            videos.map(video => basename(fileURLToPath(video.artifact.uri))),
+            [1, 2, 3, 4, 5].map(sequence => `示例账号Demo-${sequence}.mp4`)
+        );
+        for (const { artifact } of videos) {
+            assert.equal(artifact.byte_size, bytes.byteLength);
+            assert.equal(artifact.sha256, createHash("sha256").update(bytes).digest("hex"));
+            assert.deepEqual(new Uint8Array(await readFile(fileURLToPath(artifact.uri))), bytes);
+        }
+        const files = await readdir(artifactRoot, { recursive: true, withFileTypes: true });
+        assert.equal(files.filter(file => file.isFile()).length, 5);
+    });
+});
+
+test("v2 partial batches and nonconsecutive retries retain original sequences", async () => {
+    await withArtifactRoot(async artifactRoot => {
+        const four = "https://videos.example.test/four.mp4";
+        const five = "https://videos.example.test/five.mp4";
+        const bytes = Uint8Array.from([1, 2, 3, 4]);
+        const outcomes = new Map<string, DownloadOutcome>([
+            [ONE, { error: "POPUP_CAPTURE_NETWORK_ERROR" }],
+            [TWO, { bytes }],
+            [THREE, { bytes }],
+            [four, { error: "POPUP_CAPTURE_NETWORK_ERROR" }],
+            [five, { bytes }]
+        ]);
+        const harness = new CaptureHarness();
+        registerCapture(harness.context, { artifactRoot }, new FixtureDownloader(outcomes));
+        async function submit(videoUrls: string[], sequenceStart: number): Promise<CapturedVideoSetV1> {
+            const submission = await harness.execute({
+                contract_version: CAPTURE_REQUEST_V2_VERSION,
+                video_urls: videoUrls,
+                account_name: "示例账号",
+                sequence_start: sequenceStart
+            });
+            assert.equal(asRecord(submission).status, "queued");
+            return parseVideoSet((await harness.lastJob.hooks.done).output);
+        }
+
+        const first = await submit([ONE, TWO, THREE], 1);
+        const second = await submit([four, five], 4);
+        assert.equal(first.status, "partial");
+        assert.equal(second.status, "partial");
+        assert.deepEqual(
+            [...first.failures, ...second.failures].map(failure => failure.source_url),
+            [ONE, four]
+        );
+        outcomes.set(ONE, { bytes });
+        outcomes.set(four, { bytes });
+        const retryOne = await submit([ONE], 1);
+        const retryFour = await submit([four], 4);
+        assert.equal(retryOne.status, "completed");
+        assert.equal(retryFour.status, "completed");
+        const videos = [...first.videos, ...second.videos, ...retryOne.videos, ...retryFour.videos];
+        const files = videos.map(video => basename(fileURLToPath(video.artifact.uri)));
+        assert.deepEqual(
+            files,
+            [2, 3, 5, 1, 4].map(sequence => `示例账号-${sequence}.mp4`)
+        );
+        assert.equal(new Set(files).size, 5);
+        const entries = await readdir(artifactRoot, { recursive: true, withFileTypes: true });
+        assert.equal(entries.filter(entry => entry.isFile()).length, 5);
+    });
+});
+
+test("v2 account filenames handle Windows characters, reserved names and Unicode length", async () => {
+    await withArtifactRoot(async artifactRoot => {
+        const harness = new CaptureHarness();
+        registerCapture(
+            harness.context,
+            { artifactRoot },
+            new FixtureDownloader(
+                new Map([[ONE, { bytes: Uint8Array.from([1]), mediaType: "video/webm", fileExtension: "webm" }]])
+            )
+        );
+        for (const [accountName, prefix] of [
+            ["  科普/甲:乙?  ", "科普_甲_乙_"],
+            ["名\u0001字", "名_字"],
+            ["CON.notes", "_CON.notes"],
+            ["...", "account"],
+            ["\\..", "_"],
+            ["😀".repeat(70), "😀".repeat(50)]
+        ] as const) {
+            const submission = await harness.execute({
+                contract_version: CAPTURE_REQUEST_V2_VERSION,
+                video_urls: [ONE],
+                account_name: accountName,
+                sequence_start: 4
+            });
+            assert.equal(asRecord(submission).status, "queued");
+            const result = parseVideoSet((await harness.lastJob.hooks.done).output);
+            assert.equal(result.status, "completed");
+            const artifact = result.videos[0]?.artifact;
+            assert.ok(artifact);
+            assert.equal(fileURLToPath(artifact.uri), join(artifactRoot, result.run_id, `${prefix}-4.webm`));
+            assert.deepEqual(await readdir(join(artifactRoot, result.run_id)), [`${prefix}-4.webm`]);
+        }
     });
 });
 

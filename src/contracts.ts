@@ -1,4 +1,5 @@
 export const CAPTURE_REQUEST_VERSION = "popup.capture.request.v1" as const;
+export const CAPTURE_REQUEST_V2_VERSION = "popup.capture.request.v2" as const;
 export const CAPTURE_SUBMISSION_VERSION = "popup.capture.submission.v1" as const;
 export const CAPTURED_VIDEO_SET_VERSION = "popup.capture.video-set.v1" as const;
 export const ARTIFACT_REF_VERSION = "popup.artifact-ref.v1" as const;
@@ -22,6 +23,15 @@ export interface CaptureRequestV1 {
     contract_version: typeof CAPTURE_REQUEST_VERSION;
     video_urls: string[];
 }
+
+export interface CaptureRequestV2 {
+    contract_version: typeof CAPTURE_REQUEST_V2_VERSION;
+    video_urls: string[];
+    account_name: string;
+    sequence_start: number;
+}
+
+export type CaptureRequest = CaptureRequestV1 | CaptureRequestV2;
 
 export interface CaptureErrorV1 {
     code: CaptureErrorCode;

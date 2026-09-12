@@ -10,8 +10,9 @@ import z from "@deepseek-ai/schemastery";
 import { captureVideos } from "./capture.js";
 import {
     CAPTURE_REQUEST_VERSION,
+    CAPTURE_REQUEST_V2_VERSION,
     CAPTURE_SUBMISSION_VERSION,
-    type CaptureRequestV1,
+    type CaptureRequest,
     type CapturedVideoSetV1,
     type CaptureSubmissionV1
 } from "./contracts.js";
@@ -83,19 +84,28 @@ export function registerCapture(ctx: Context, config: Config, downloader: VideoD
         defineTool({
             name: "popup_capture",
             description:
-                "Queue asynchronous capture of 1 to 3 HTTPS video URLs. Returns a run id and DSH job id immediately; read the final CapturedVideoSet v1 JSON with job_output.",
+                "Queue asynchronous capture of 1 to 3 HTTPS video URLs. Use v2 with account_name and sequence_start for account-named files across batches. Returns run and job ids; read the final CapturedVideoSet v1 JSON with job_output.",
             parameters: {
                 contract_version: {
                     type: "string",
-                    const: CAPTURE_REQUEST_VERSION,
+                    enum: [CAPTURE_REQUEST_VERSION, CAPTURE_REQUEST_V2_VERSION],
                     required: true,
-                    description: "Must be popup.capture.request.v1."
+                    description: "Use popup.capture.request.v1 or popup.capture.request.v2."
                 },
                 video_urls: {
                     type: "array",
                     items: { type: "string" },
                     required: true,
                     description: "An array containing 1 to 3 unique HTTPS video URLs without credentials."
+                },
+                account_name: {
+                    type: "string",
+                    description: "Required only for v2. Nonblank account display name used as the filename prefix."
+                },
+                sequence_start: {
+                    type: "integer",
+                    description:
+                        "Required only for v2. Original one-based sequence of the first URL (1–9007199254740989). Use consecutive URLs per batch; retain original sequence when retrying."
                 }
             },
             output: {
@@ -163,7 +173,7 @@ export function registerCapture(ctx: Context, config: Config, downloader: VideoD
 }
 
 interface JobHookOptions {
-    request: CaptureRequestV1;
+    request: CaptureRequest;
     runId: string;
     artifactRoot: string;
     downloader: VideoDownloader;
