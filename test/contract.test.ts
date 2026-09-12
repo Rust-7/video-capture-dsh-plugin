@@ -8,11 +8,12 @@ import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js
 
 import { CAPTURE_ERROR_CODES, type CapturedVideoSetV1 } from "../src/contracts.js";
 import { registerCapture } from "../src/plugin.js";
+import { validateCaptureRequest } from "../src/request.js";
 import { CaptureHarness, FixtureDownloader } from "./helpers.js";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 
-test("all shipped fixtures validate against their v1 schemas", async () => {
+test("shipped v1 fixtures validate against their v1 schemas", async () => {
     const validators = await loadValidators();
     const errorSchema = asRecord(await readJson("contracts/capture/v1/capture-error.schema.json"));
     const errorProperties = asRecord(errorSchema.properties);
@@ -39,36 +40,73 @@ test("all shipped fixtures validate against their v1 schemas", async () => {
     }
 });
 
-test("fixture-backed Tool to Job flow produces schema-valid CapturedVideoSet v1", async () => {
+test("v2 request fixtures and invalid naming cases agree with runtime validation", async () => {
     const validators = await loadValidators();
-    const request = await readJson("fixtures/requests/valid-one.json");
-    assertValid(validators.request, request);
+    const request = asRecord(await readJson("fixtures/requests/valid-named-three.json"));
+    const secondBatch = await readJson("fixtures/requests/valid-named-two.json");
+    for (const input of [request, secondBatch, { ...request, sequence_start: Number.MAX_SAFE_INTEGER - 2 }]) {
+        assertValid(validators.requestV2, input);
+        assert.equal(validateCaptureRequest(input).ok, true);
+        assert.equal(validators.request(input), false);
+    }
+    for (const field of ["account_name", "sequence_start"]) {
+        const input = { ...request };
+        delete input[field];
+        assert.equal(validators.requestV2(input), false);
+        assert.equal(validateCaptureRequest(input).ok, false);
+    }
+    for (const input of [
+        { ...request, account_name: "" },
+        { ...request, account_name: " \t\n" },
+        { ...request, account_name: 42 },
+        ...[0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER - 1].map(sequence_start => ({ ...request, sequence_start })),
+        { ...request, extra: true },
+        { ...request, video_urls: [] },
+        { ...request, video_urls: ["https://videos.example.test/one.mp4", "https://videos.example.test/one.mp4"] },
+        { ...request, video_urls: ["http://videos.example.test/one.mp4"] },
+        { ...request, video_urls: ["https://user:pass@videos.example.test/one.mp4"] },
+        { ...request, video_urls: [1, 2, 3, 4].map(index => `https://videos.example.test/${index}.mp4`) }
+    ]) {
+        assert.equal(validators.requestV2(input), false, JSON.stringify(input));
+        assert.equal(validateCaptureRequest(input).ok, false, JSON.stringify(input));
+    }
+});
 
-    const sourceUrl = asRecord(request).video_urls;
-    assert.ok(Array.isArray(sourceUrl));
-    assert.equal(typeof sourceUrl[0], "string");
+test("fixture-backed v1 and v2 Tool to Job flows produce schema-valid CapturedVideoSet v1", async () => {
+    const validators = await loadValidators();
+    for (const fixture of ["valid-one.json", "valid-named-three.json", "valid-named-two.json"]) {
+        const request = await readJson(`fixtures/requests/${fixture}`);
+        assertValid(fixture === "valid-one.json" ? validators.request : validators.requestV2, request);
 
-    const harness = new CaptureHarness();
-    registerCapture(
-        harness.context,
-        { artifactRoot: fileURLToPath(new URL("../../.test-dist/artifacts", import.meta.url)) },
-        new FixtureDownloader(new Map([[sourceUrl[0], { bytes: Uint8Array.from([1, 2, 3, 4]) }]]))
-    );
+        const sourceUrl = asRecord(request).video_urls;
+        assert.ok(Array.isArray(sourceUrl));
+        assert.equal(typeof sourceUrl[0], "string");
 
-    const submission = await harness.execute(request);
-    assertValid(validators.submission, submission);
-    assert.equal(asRecord(submission).status, "queued");
+        const harness = new CaptureHarness();
+        registerCapture(
+            harness.context,
+            { artifactRoot: fileURLToPath(new URL("../../.test-dist/artifacts", import.meta.url)) },
+            new FixtureDownloader(
+                new Map((sourceUrl as string[]).map(url => [url, { bytes: Uint8Array.from([1, 2, 3, 4]) }]))
+            )
+        );
 
-    const outcome = await harness.lastJob.hooks.done;
-    assert.equal(outcome.status, "completed");
-    assert.notEqual(outcome.output, undefined);
-    const videoSet = JSON.parse(outcome.output ?? "") as CapturedVideoSetV1;
-    assertValid(validators.videoSet, videoSet);
-    assertVideoSetSemantics(videoSet, sourceUrl as string[]);
+        const submission = await harness.execute(request);
+        assertValid(validators.submission, submission);
+        assert.equal(asRecord(submission).status, "queued");
+
+        const outcome = await harness.lastJob.hooks.done;
+        assert.equal(outcome.status, "completed");
+        assert.notEqual(outcome.output, undefined);
+        const videoSet = JSON.parse(outcome.output ?? "") as CapturedVideoSetV1;
+        assertValid(validators.videoSet, videoSet);
+        assertVideoSetSemantics(videoSet, sourceUrl as string[]);
+    }
 });
 
 async function loadValidators(): Promise<{
     request: ValidateFunction;
+    requestV2: ValidateFunction;
     submission: ValidateFunction;
     videoSet: ValidateFunction;
 }> {
@@ -77,6 +115,7 @@ async function loadValidators(): Promise<{
         readJson("contracts/common/v1/artifact-ref.schema.json"),
         readJson("contracts/capture/v1/capture-error.schema.json"),
         readJson("contracts/capture/v1/capture-request.schema.json"),
+        readJson("contracts/capture/v2/capture-request.schema.json"),
         readJson("contracts/capture/v1/capture-submission.schema.json"),
         readJson("contracts/capture/v1/captured-video-set.schema.json")
     ]);
@@ -85,6 +124,7 @@ async function loadValidators(): Promise<{
     }
     return {
         request: requiredValidator(ajv.getSchema("urn:poppincn:popup:capture-request:v1")),
+        requestV2: requiredValidator(ajv.getSchema("urn:poppincn:popup:capture-request:v2")),
         submission: requiredValidator(ajv.getSchema("urn:poppincn:popup:capture-submission:v1")),
         videoSet: requiredValidator(ajv.getSchema("urn:poppincn:popup:captured-video-set:v1"))
     };

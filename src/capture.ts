@@ -8,17 +8,18 @@ import { pathToFileURL } from "node:url";
 
 import {
     ARTIFACT_REF_VERSION,
+    CAPTURE_REQUEST_V2_VERSION,
     CAPTURED_VIDEO_SET_VERSION,
     type ArtifactRefV1,
     type CaptureErrorV1,
-    type CaptureRequestV1,
+    type CaptureRequest,
     type CapturedVideoSetV1
 } from "./contracts.js";
 import type { DownloadedVideo, VideoDownloader } from "./downloader.js";
 import { captureError, DownloaderError, isAbortError } from "./errors.js";
 
 export interface CaptureExecution {
-    request: CaptureRequestV1;
+    request: CaptureRequest;
     runId: string;
     jobId: string;
     artifactRoot: string;
@@ -74,7 +75,12 @@ async function materializeArtifact(
 
     const runDirectory = resolve(execution.artifactRoot, execution.runId);
     const extension = normalizeExtension(download.fileExtension, download.mediaType);
-    const artifactPath = resolve(runDirectory, `video-${index + 1}.${extension}`);
+    const request = execution.request;
+    const filename =
+        request.contract_version === CAPTURE_REQUEST_V2_VERSION ?
+            `${sanitizeAccountName(request.account_name)}-${request.sequence_start + index}.${extension}`
+        :   `video-${index + 1}.${extension}`;
+    const artifactPath = resolve(runDirectory, filename);
     const hash = createHash("sha256");
     let byteSize = 0;
 
@@ -114,6 +120,18 @@ async function materializeArtifact(
         sha256: hash.digest("hex"),
         metadata: { source_url: sourceUrl }
     };
+}
+
+function sanitizeAccountName(value: string): string {
+    const characters = Array.from(value.trim(), character =>
+        character.charCodeAt(0) < 32 || '<>:"/\\|?*'.includes(character) ? "_" : character
+    );
+    const prefix =
+        characters
+            .slice(0, 50)
+            .join("")
+            .replace(/[. ]+$/u, "") || "account";
+    return /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu.test(prefix) ? `_${prefix}` : prefix;
 }
 
 function mapCaptureFailure(error: unknown, sourceUrl: string, signal: AbortSignal): CaptureErrorV1 {

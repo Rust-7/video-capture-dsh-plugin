@@ -1,0 +1,10 @@
+{
+    "contract_version": "popup.capture.request.v2",
+    "video_urls": [
+        "https://videos.example.test/one.mp4",
+        "https://videos.example.test/two.mp4",
+        "https://videos.example.test/three.mp4"
+    ],
+    "account_name": "示例账号",
+    "sequence_start": 1
+}
